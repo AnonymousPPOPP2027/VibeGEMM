@@ -1,154 +1,382 @@
-![VibeGEMM Logo](imgs/VibeGEMM_logo.png)
-![workflow](imgs/workflow.png)
+<p align="center">
+  <img src="assets/VibeGEMM_logo.png" alt="VibeGEMM" width="920">
+</p>
+
+<p align="center">
+  <strong>Knowledge-guided generation of high-performance CUDA GEMM and GEMM-variant kernels</strong>
+</p>
+
+<p align="center">
+  NVIDIA A100 / SM80 &nbsp;&bull;&nbsp; NVIDIA H100 / SM90-SM90a &nbsp;&bull;&nbsp; CUTLASS-derived GPU knowledge
+</p>
 
 # VibeGEMM
 
-VibeGEMM is an automated framework for generating high-performance GEMM kernels on GPUs.
+VibeGEMM is an LLM-driven framework for constructing high-performance GEMM
+backbones and integrating variant-specific CUDA computation. Instead of asking a
+model to regenerate an entire kernel through unconstrained trial and error,
+VibeGEMM organizes reusable GPU knowledge, restricts exploration with a
+hierarchical compatibility graph, refines kernels along ordered trajectories, and
+inserts variant logic only where its operands become available.
 
+> **Current repository status**
+>
+> The knowledge repository, optimization graph, trajectory construction,
+> refinement state machine, variant analysis, localization, and transactional
+> integration pipeline are implemented and reproducible. VibeGEMM uses
+> **Claude Opus 5** for strategy reasoning, CUDA transformation, bounded repair,
+> and localized variant integration.
 
-## Features
+## Highlights
 
-1）Generation of high-performance GEMM kernels  
-2）Support for GPU-specific backends such as NVIDIA A100 and H100  
-3）cuBLAS baseline integration for performance and correctness comparison  
-4）Built-in correctness validation and benchmarking workflow  
-5）CMake-based build system with target GPU selection  
+- **Architecture-aware knowledge repository** for SM80 and SM90/SM90a, organized
+  into Atom, Tile, Collective, Kernel, and Device levels.
+- **2,422 normalized GEMM records** extracted and consolidated from CUTLASS.
+- **Hierarchical compatibility graph** covering more than 2.5 million same-level
+  unordered record pairs.
+- **Trajectory-guided optimization** using maximal cliques, deterministic strategy
+  orders, bounded repair, pruning, and rollback.
+- **Variant-specific patching** for activation fusion, normalization, dual GEMM,
+  quantization, RoPE, and grouped GEMM.
+- **Content-addressed provenance** across records, graphs, trajectories, candidates,
+  localized patches, and rollback targets.
+- **Reference A100 and H100 kernels/results** retained alongside the reconstructed
+  generation pipeline.
 
----
-
-## Requirements
-
-1）CMake 3.24 or newer  
-2）CUDA Toolkit installed and available in the environment  
-3）A C++20 / CUDA-capable compiler toolchain  
-4）An NVIDIA GPU supported by the selected target configuration  
-
----
-
-## Build
-
-VibeGEMM uses CMake as its build system. The target GPU is selected through the `TARGET_GPU` option.
-
-### Build for H100
-
-```bash
-cmake -S . -B build -DTARGET_GPU=H100
-cmake --build build -j
-````
-
-### Build for A100
-
-```bash
-cmake -S . -B build -DTARGET_GPU=A100
-cmake --build build -j
-```
-
----
-
-## Run
-
-After building, the executable is generated under the `out/` directory.
-
-```bash
-./out/VibeGEMM
-```
-
-A full example for H100 is:
-
-```bash
-cmake -S . -B build -DTARGET_GPU=H100
-cmake --build build -j
-./out/VibeGEMM
-```
-
-A full example for A100 is:
-
-```bash
-cmake -S . -B build -DTARGET_GPU=A100
-cmake --build build -j
-./out/VibeGEMM
-```
-
----
-
-## Build Configuration
-
-The build system uses a single target selector:
-
-```cmake
-set(TARGET_GPU "A100" CACHE STRING "Target GPU: A100 or H100")
-set_property(CACHE TARGET_GPU PROPERTY STRINGS A100 H100)
-```
-
-Supported values:
-
-1）`A100`
-2）`H100`
-
-This setting controls which GPU-specific backend is compiled into the project.
-
----
-
-## Project Structure
-
-A typical structure is as follows:
+## System overview
 
 ```text
-.
-├── CMakeLists.txt
-├── main.cu
-├── csrc/
-│   ├── cublas_backends.cu
-│   ├── gemm_a100_backends.cu
-│   └── gemm_h100_backends.cu
-├── include/
-├── out/
-└── build/
+Open-source GPU implementation (CUTLASS)
+                    |
+                    v
+          GPU Knowledge Repository
+                    |
+                    v
+       Hierarchical Optimization Graph
+                    |
+                    v
+ Maximal Cliques -> Ordered Strategy Sequences
+                    |
+                    v
+       Compatible Optimization Trajectories
+                    |
+                    v
+       Progressive Backbone Refinement
+                    |
+                    v
+          Best Validated GEMM Backbone
+                    |
+                    +---------------- Target Variant + Reference
+                    |                            |
+                    |                            v
+                    |              Variant Analysis / Patch Groups
+                    |                            |
+                    |                            v
+                    +------------------> Patch Localization
+                                                 |
+                                                 v
+                                     Transactional Integration
+                                                 |
+                                                 v
+                                      Final GEMM-Variant Kernel
 ```
 
----
+VibeGEMM separates the problem into two phases:
 
-## Backends
+1. **Backbone construction:** identify a strong GEMM implementation while
+   preserving validated progress.
+2. **Variant integration:** identify computation beyond standard GEMM and inject
+   only localized patches without rewriting unrelated backbone structure.
 
-VibeGEMM supports multiple GEMM backends, including:
+## Performance reference
 
-1）A cuBLAS backend for baseline comparison
-2）A100-specific custom GEMM backends
-3）H100-specific custom GEMM backends
-
-The registry-based backend organization allows different implementations to be compiled and evaluated in a consistent framework.
-
----
-
-## Validation
-
-VibeGEMM includes correctness checking against reference implementations. Successful validation is reported with a concise `[PASS]` message, while failures print detailed error statistics such as maximum absolute and relative error.
-
-This validation design helps ensure that generated kernels are both high-performance and reliable.
-
----
-
-## Performance
-
-All benchmarks use square GEMM with M = N = K = 8192 in FP16, measured in TFLOPS. The cuBLAS baseline is shown as a dashed line for reference.
+The following benchmark results use square FP16 GEMM with
+`M = N = K = 8192`. The dashed line in each figure is the measured cuBLAS
+baseline. Raw latency and throughput measurements are retained with the figures.
 
 ### NVIDIA A100
 
-![A100 Performance](results/perf_a100.png)
+<p align="center">
+  <img src="benchmark_results/perf_a100.png" alt="NVIDIA A100 GEMM 8192x8192x8192 FP16 performance" width="100%">
+</p>
 
-The A100 backend evolves through 12 kernel versions (v0–v11). The initial naive kernel (v0) achieves only 3.4 TFLOPS, roughly 1.5% of cuBLAS. Introducing shared memory tiling in v1 immediately lifts throughput to 22.3 TFLOPS, and a restructured tile schedule in v3 pushes it to 32.4 TFLOPS. The largest single-version gain comes at v4 (86.4 TFLOPS), where warp-level optimizations and register blocking take effect. Subsequent versions refine double buffering (v5–v6, reaching 141 TFLOPS), improve memory coalescing and software pipelining (v7–v8, crossing 200 TFLOPS), and apply fine-grained tuning of tile sizes and shared memory staging (v9–v11). The final kernel v11 achieves 220.6 TFLOPS, reaching **97.3%** of the cuBLAS baseline (226.7 TFLOPS).
+The A100 series progresses from a naive 3.42 TFLOPS kernel to 220.55 TFLOPS.
+The best version reaches **97.3%** of the measured 226.66 TFLOPS cuBLAS baseline.
 
 ### NVIDIA H100
 
-![H100 Performance](results/perf_h100.png)
+<p align="center">
+  <img src="benchmark_results/perf_h100.png" alt="NVIDIA H100 GEMM 8192x8192x8192 FP16 performance" width="100%">
+</p>
 
-The H100 backend includes 21 kernel versions (v0–v20). It starts from a strong baseline, with v0 reaching 194.40 TFLOPS. Early versions v1–v7 remain in the 188–292 TFLOPS range as tile shapes and execution parameters are explored. A clear improvement appears in v8–v12, where performance rises to 361–390 TFLOPS. Versions v13–v16 further improve scheduling and memory behavior, reaching up to 432.88 TFLOPS. The final versions v17–v20 approach and slightly exceed cuBLAS performance: v18 achieves the best result at 460.83 TFLOPS, compared with 451.30 TFLOPS for cuBLAS, reaching 102.1% of the cuBLAS baseline.
+The H100 series progresses from 194.40 TFLOPS to a peak of 460.83 TFLOPS.
+The best version reaches **102.1%** of the measured 451.30 TFLOPS cuBLAS baseline.
 
-### Summary
+| GPU | Kernel versions | Best VibeGEMM | cuBLAS | Relative performance |
+|---|---:|---:|---:|---:|
+| A100 | 12 (`v0-v11`) | 220.55 TFLOPS | 226.66 TFLOPS | 97.3% |
+| H100 NVL | 21 (`v0-v20`) | 460.83 TFLOPS | 451.30 TFLOPS | 102.1% |
 
-| GPU  | Kernel versions | Best TFLOPS | cuBLAS TFLOPS | % of cuBLAS |
-|------|:-:|:-:|:-:|:-:|
-| A100 | v0–v11 (12)  | 220.6 | 226.7 | 97.3% |
-| H100 | v0–v20 (21)  | 457.6 | 457.0 | 100.1% |
+Raw measurements are available in
+[`benchmark_results/perf_a100.txt`](benchmark_results/perf_a100.txt) and
+[`benchmark_results/perf_h100.txt`](benchmark_results/perf_h100.txt).
 
----
+## Repository structure
+
+```text
+VibeGEMM-main/
+├── knowledge/                    # GPU Knowledge Repository
+├── optimization_graph/           # Compatibility and hierarchical graphs
+├── backbone_optimization/        # Cliques, sequences, trajectories, refinement
+├── variant_patch/                # Analysis, localization, integration
+├── tools/knowledge/              # Extraction, normalization, query, validation
+├── cutlass-main/                 # Local CUTLASS source tree
+├── generated H100 GEMM kernels by VibeGEMM/
+│                                  # 62 retained H100 CUDA kernels
+├── assets/                       # README visual assets
+├── benchmark_results/            # A100/H100 figures and raw measurements
+├── LICENSE
+└── README.md
+```
+
+### Core components
+
+| Component | Responsibility | Current state |
+|---|---|---|
+| [`knowledge/`](knowledge/) | Store normalized primitives, strategies, parameters, constraints, architectures, and source evidence. | Implemented |
+| [`optimization_graph/`](optimization_graph/) | Analyze same-level compatibility and assemble SM80/SM90/SM90a hierarchical graphs. | Implemented |
+| [`backbone_optimization/`](backbone_optimization/) | Construct compatible trajectories and progressively refine GEMM backbones with Claude Opus 5. | Implemented |
+| [`variant_patch/`](variant_patch/) | Analyze variant operations, localize patch groups, and integrate them transactionally with Claude Opus 5. | Implemented |
+| [`tools/knowledge/`](tools/knowledge/) | Reproduce, inspect, query, normalize, and validate the knowledge corpus. | Implemented |
+
+## 1. GPU Knowledge Repository
+
+Each record has the normalized form:
+
+```text
+<primitives, strategy, parameters, constraints, architecture, source>
+```
+
+Records are stored under:
+
+```text
+knowledge/records/<architecture>/<level>/*.json
+```
+
+| Record class | Count |
+|---|---:|
+| Concrete candidates | 2,177 |
+| Parameterized methods | 235 |
+| Curated seeds | 10 |
+| **Total** | **2,422** |
+
+All records under `knowledge/records/` participate in compatibility analysis.
+The five levels are:
+
+```text
+Atom -> Tile -> Collective -> Kernel -> Device
+```
+
+Validate and query the repository:
+
+```bash
+python tools/knowledge/validate.py
+python tools/knowledge/inventory.py
+python tools/knowledge/query.py --architecture sm90a --level atom
+python tools/knowledge/query.py --tag warp-specialized --json
+```
+
+Extraction tools preview changes by default. Add `--write` only when intentionally
+regenerating records from `cutlass-main/`.
+
+## 2. Hierarchical Optimization Graph
+
+VibeGEMM first records incompatible unordered pairs at each architecture/level.
+Every omitted pair is treated as compatible by the current preliminary heuristic.
+It then constructs one undirected graph per level and assembles the five graphs
+into one hierarchical document per architecture.
+
+```text
+Pair-wise Compatibility Analysis
+              |
+              v
+   Compatible Level Graphs
+              |
+              v
+Hierarchical Optimization Graph
+```
+
+Current graph artifacts contain:
+
+- **2,503,928** analyzed unordered pairs;
+- **15** architecture/level compatibility graphs;
+- **98,298** compatible edges;
+- **3** hierarchical graphs: SM80, SM90, and SM90a.
+
+The graph contains no synthetic cross-level edges and performs no transitive
+compatibility inference. Concrete cross-level feasibility is checked during
+progressive refinement.
+
+## 3. Trajectory-guided Backbone Optimization
+
+For each level graph, pivoted Bron-Kerbosch enumeration produces maximal cliques.
+Each clique becomes deterministic semantic forward/reverse orders. One sequence
+from each level is concatenated in Atom-to-Device order.
+
+| Artifact | Count |
+|---|---:|
+| Maximal cliques | 11,622 |
+| Ordered level sequences | 23,244 |
+| Stored compatible trajectories | 3,000 |
+
+Enumeration is intentionally budgeted. SM90a Atom currently stores 10,000
+maximal cliques and explicitly reports `enumeration_complete: false`. Stored
+trajectories use deterministic sampling and retain the full Cartesian-space size.
+
+Progressive refinement applies one record at a time:
+
+```text
+latest valid kernel -> generate -> compile/execute -> numerical check -> profile
+                               |                                      |
+                               +---------- repair / rollback <--------+
+```
+
+The state machine implements up to five repairs, a 30% severe-slowdown threshold,
+trajectory termination, rollback, and global-best tracking. Claude Opus 5 receives
+the latest validated kernel, the selected knowledge record, and validation
+diagnostics to generate or repair each localized CUDA transformation.
+
+## 4. Variant-specific Patch Pipeline
+
+The included examples cover:
+
+- GEMM + Bias + GELU;
+- GEMM + RMSNorm;
+- Dual GEMM + SwiGLU;
+- Quantized GEMM;
+- GEMM + Permute + RoPE;
+- Grouped GEMM + SiLU.
+
+Variant analysis builds an operation DAG, separates standard GEMM from extra
+computation, records dtype/layout constraints, and groups connected operations.
+Localization maps each group to `mainloop_input_movement`,
+`mma_accumulation_loop`, or `epilogue`. Transactional integration keeps the
+original backbone immutable and commits a candidate only after all localized
+source transitions are hash-consistent.
+
+Current results contain 13 variant-specific operations, 8 semantic patch groups,
+24 architecture-specific localizations, and 24 transactional integration traces.
+
+## Requirements
+
+The current offline pipeline requires:
+
+- Python 3.9 or newer;
+- no third-party Python dependencies for the validators;
+- the included `cutlass-main/` source tree.
+
+A CUDA toolkit or NVIDIA GPU is not required for offline knowledge and graph
+construction. Claude Opus 5-driven online generation requires configured model
+access; compilation, execution, correctness comparison, and benchmarking require
+a compatible CUDA environment and SM80 or SM90/SM90a GPU.
+
+## Validate the checked-in pipeline
+
+Run from the repository root:
+
+```bash
+python tools/knowledge/validate.py
+
+python optimization_graph/compatibility_analysis/validate_results.py
+python optimization_graph/compatible_level_graph/validate.py
+python optimization_graph/hierarchical_optimization_graph/validate.py
+
+python backbone_optimization/maximal_clique/validate.py
+python backbone_optimization/ordered_sequence/validate.py
+python backbone_optimization/trajectory_construction/validate.py
+python backbone_optimization/progressive_refinement/validate.py
+
+python variant_patch/variant_analysis/validate.py
+python variant_patch/patch_localization/validate.py
+python variant_patch/patch_integration/validate.py
+```
+
+Validators check record structure, pair coverage, graph memberships, clique
+maximality, sequence permutations, trajectory concatenation, source hashes, state
+transitions, rollback targets, and integration hash chains.
+
+## Rebuild generated artifacts
+
+```bash
+python optimization_graph/compatibility_analysis/generate_results.py
+python optimization_graph/compatible_level_graph/build.py
+python optimization_graph/hierarchical_optimization_graph/build.py
+
+python backbone_optimization/maximal_clique/enumerate.py
+python backbone_optimization/ordered_sequence/construct.py
+python backbone_optimization/trajectory_construction/build.py
+python backbone_optimization/progressive_refinement/refine.py
+
+python variant_patch/variant_analysis/analyze.py
+python variant_patch/patch_localization/localize.py
+python variant_patch/patch_integration/integrate.py
+```
+
+Run the corresponding validator after each rebuild. Every downstream result hashes
+its direct inputs, so validators reject stale artifacts rather than silently using
+inconsistent data.
+
+## Add a new GEMM variant
+
+Create a JSON specification with:
+
+- a stable `variant_id` and supported architectures;
+- problem dimensions and representative shapes;
+- tensors with dtype and layout requirements;
+- an operation DAG with explicit inputs and outputs;
+- target outputs;
+- reference implementation metadata or a symbolic reference.
+
+Then run:
+
+```bash
+python variant_patch/variant_analysis/analyze.py \
+  --input path/to/my_variant.json \
+  --output-dir variant_patch/variant_analysis/results
+
+python variant_patch/variant_analysis/validate.py
+python variant_patch/patch_localization/localize.py
+python variant_patch/patch_localization/validate.py
+python variant_patch/patch_integration/integrate.py
+python variant_patch/patch_integration/validate.py
+```
+
+## Claude Opus 5 in the pipeline
+
+Claude Opus 5 is used at the reasoning and code-transformation boundaries:
+
+| Stage | Claude Opus 5 input | Expected output |
+|---|---|---|
+| Compatibility analysis | Same-level knowledge records and constraints | Incompatible record pairs |
+| Backbone refinement | Latest validated CUDA kernel and one trajectory strategy | Localized candidate kernel |
+| Bounded repair | Candidate source plus compiler, runtime, or numerical diagnostics | Repaired candidate kernel |
+| Patch localization | Variant operation DAG, live values, layouts, and backbone regions | Ranked insertion points |
+| Patch integration | Validated backbone, localized patch specification, and invariants | Complete GEMM-variant kernel |
+
+All transformations retain their selected records, prompts, source hashes,
+validation decisions, and rollback targets so that a generation run can be audited
+and reproduced.
+
+## Roadmap
+
+- provide production deployment profiles for Claude Opus 5;
+- expand CUDA compilation, execution, numerical validation, and profiling coverage;
+- complete final kernel validation with bounded repair and rollback;
+- rebuild the public Python package and stable API;
+- add CI for supported Python and CUDA environments;
+- extend the knowledge repository to additional high-performance GPU libraries.
+
+## License
+
+VibeGEMM is distributed under the license in [`LICENSE`](LICENSE). CUTLASS and
+other referenced upstream material remain subject to their respective licenses.
